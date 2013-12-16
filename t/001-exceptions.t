@@ -19,7 +19,7 @@ subtest 'File does not exist' => sub {
     
     throws_ok {
         my $c = $loader->build;
-    } qr{^File '$file' does not exist, while building 'Root' container};
+    } qr{^\QFile '$file' does not exist, while building 'Root' container};
 };
 
 subtest 'File does not return coderef' => sub {
@@ -32,7 +32,7 @@ END_FILE
     $loader->add_file($file);
     throws_ok {
         my $c = $loader->build;
-    } qr{File '$file' did not return a coderef, while building 'Database' container};
+    } qr{^\QFile '$file' did not return a coderef, while building 'Database' container};
 };
 
 subtest 'File returns a coderef, which doesnot return a container' => sub {
@@ -52,7 +52,7 @@ END_FILE
     $loader->add_file($file);
     throws_ok {
         my $c = $loader->build;
-    } qr{Builder did not return a container, while building 'Root' container};
+    } qr{^\QBuilder did not return a container, while building 'Root' container};
 };
 
 subtest 'File returns a coderef, which returns a container with different name' => sub {
@@ -68,7 +68,7 @@ END_FILE
     $loader->add_file($file);
     throws_ok {
         my $c = $loader->build;
-    } qr{Builder returns container with different name 'C', while building 'WebServices' container};
+    } qr{^\QBuilder returns container with different name 'C', while building 'WebServices' container};
 };
 
 done_testing();

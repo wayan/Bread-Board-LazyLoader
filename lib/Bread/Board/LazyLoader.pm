@@ -125,9 +125,22 @@ even if the container was already created inside parent container.
 
 =over 4
 
-=item C<new>
+=item C<new(%args)>
 
-Parameterless constructor
+Constructor with optional arguments
+
+=over 4
+
+=item name
+
+The name of container built, default is C<Root>.
+
+=item cache_codes
+
+Whether the subroutines returned from builder files are remembered.
+Default is 1.
+
+=back
 
 =item C<add_file(FILE, [ UNDER ])>
 
@@ -152,6 +165,9 @@ use Bread::Board qw(include);
 use Carp qw(croak);
 
 has name => ( is => 'ro', required => 1, default => 'Root' );
+
+# remember the subs returned from builder files
+has cache_codes => ( is => 'ro', default => 1 );
 
 # builders (files and codes) for current container
 has builders => (
@@ -228,13 +244,29 @@ sub _error_msg {
     return "$msg, while building '" . $this->name . "' container\n";
 }
 
+
+sub get_code_from {
+    my ($this, $file) = @_;
+
+    my $code = include($file);
+    ref($code) eq 'CODE' or croak $this->_error_msg("File '$file' did not return a coderef");
+    return $code;
+}
+
+my %code_from;
+around get_code_from => sub {
+    my ( $orig, $this, $file ) = @_;
+
+    return $this->cache_codes
+        ? $code_from{$file} ||= $this->$orig($file)
+        : $this->$orig($file);
+};
+
 sub _apply_file {
     my ( $this, $c, $file ) = @_;
 
     -f $file or croak $this->_error_msg("File '$file' does not exist");
-    my $code = include($file);
-    ref($code) eq 'CODE' or croak $this->_error_msg("File '$file' did not return a coderef");
-    return $code->( $c );
+    return $this->get_code_from($file)->($c);;
 }
 
 sub _apply_code {
