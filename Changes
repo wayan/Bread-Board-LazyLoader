@@ -1,6 +1,14 @@
 Revision history for Bread::Board::LazyLoader
 
-0.03 Friday, Mon. 16th  2013 
+0.05 Tuesday, Sep. 16th 2014 
+
+- added Bread::Board::LazyLoader::Site and Bread::Board::LazyLoader::Supersite modules
+
+0.04 Wednesday, Aug. 20th 2014 
+
+- added add_tree method
+
+0.03 Friday, Dec. 16th  2013 
 
 - corrected regular in test
 - the subs returned from building files are cached by default

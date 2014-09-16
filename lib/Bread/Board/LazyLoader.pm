@@ -1,4 +1,5 @@
 package Bread::Board::LazyLoader;
+
 use Moose;
 
 # ABSTRACT: lazy loader for Bread::Board containers
@@ -152,6 +153,16 @@ Optional second parameter is is a path to nested container.
 Similar to add_file, but the anonymous subroutine is passed directly
 not loaded from a file.
 
+=item C<add_tree(DIR, EXTENSION, [ UNDER ])>
+
+Adds all files under directory with given extension (without leading .) to
+builder.
+
+Having files C<./IOC/Root.ioc>, C<./IOC/Database.ioc>, C<./IOC/WebServices/REST.ioc>
+then C<< $loader->add('./IOC', 'ioc') >> adds first file into current container 
+(if its name is Root), the other files cause subcontainers to be created.
+
+
 =item C<build>
 
 Builds the current container. Each call of <build> returns a new container.
@@ -212,6 +223,34 @@ sub add_code {
     ref($code) eq 'CODE'
         or croak "\$builder->add_code( CODEREF, [ \$under ])\n";
     $this->_add( [ code => $code ], $where );
+}
+
+sub add_tree {
+    my ( $this, $dir, $extension, $where ) = @_;
+
+    $this->_add_tree( $dir, $extension,
+        defined $where && $where =~ m{[^/]} ? $where : '' );
+}
+
+sub _add_tree {
+    my ( $this, $dir, $extension, $where ) = @_;
+
+    opendir( my $dh, $dir ) or die "can't opendir $dir: $!";
+    for my $basename ( grep { /[^\.]/ } readdir($dh) ) {
+        my $path = "$dir/$basename";
+        if ( -f $path ) {
+            if ( my ($name) = $basename =~ /(.*)\Q.$extension\E$/ ) {
+                $this->add_file( $path,
+                    !$where && $name eq $this->name
+                    ? ()
+                    : "$where/$name"  );
+            }
+        }
+        elsif ( -d $path ) {
+            $this->_add_tree( $path, $extension, "$where/$basename");
+        }
+    }
+    closedir $dh;
 }
 
 sub build {

@@ -1,4 +1,5 @@
 package Bread::Board::LazyLoader::Container;
+
 use Moose::Role;
 
 # ABSTRACT: building subcontainers lazily
