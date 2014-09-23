@@ -1,5 +1,9 @@
 Revision history for Bread::Board::LazyLoader
 
+0.06 Tuesday, Sep. 23th 2014 
+
+- corrected tests
+
 0.05 Tuesday, Sep. 16th 2014 
 
 - added Bread::Board::LazyLoader::Site and Bread::Board::LazyLoader::Supersite modules

@@ -2,7 +2,7 @@ package t::ExtSite;
 use strict;
 use warnings;
 
-use Tukang::BreadBoard::Site
+use Bread::Board::LazyLoader::Site
     base => 't::BaseSite',
     suffix => 'bb';
 
