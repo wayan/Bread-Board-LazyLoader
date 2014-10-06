@@ -1,5 +1,9 @@
 Revision history for Bread::Board::LazyLoader
 
+0.07 Monday, Oct. 6th 2014 
+
+- added Module::Find into dependencies
+
 0.06 Tuesday, Sep. 23th 2014 
 
 - corrected tests
