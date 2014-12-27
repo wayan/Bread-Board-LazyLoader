@@ -200,6 +200,10 @@ has sub_builders => (
     traits  => ['Hash'],
 );
 
+has container_role => ( is => 'ro', 
+	default => __PACKAGE__ . '::Container',
+);
+
 sub _add {
     my ( $this, $builder, $where ) = @_;
 
@@ -272,7 +276,7 @@ sub build {
     # there may be no builders caused by "inner" container on the way
     $c ||= Bread::Board::Container->new( name => $this->name );
 
-    Moose::Util::ensure_all_roles( $c, __PACKAGE__ . "::Container" );
+    Moose::Util::ensure_all_roles( $c, $this->container_role );
     %{ $c->sub_builders } = %{ $this->sub_builders };
     return $c;
 }
