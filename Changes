@@ -1,5 +1,13 @@
 Revision history for Bread::Board::LazyLoader
 
+0,08 Monday, Dec. 29th 2014
+
+- more than one loader can modify a single container (loaders can be stacked)
+   in such case the next loader sees all changes applied by previous one
+   even in subcontainers
+- interface of Bread::Board::LazyLoader::Site reduced to single root method
+- Bread::Board::LazyLoader::Supersite allows more sites to be loaded
+
 0.07 Monday, Oct. 6th 2014 
 
 - added Module::Find into dependencies

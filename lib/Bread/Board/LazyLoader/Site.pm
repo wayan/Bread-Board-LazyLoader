@@ -48,10 +48,6 @@ When used import into caller two class methods
 Returns Bread::Board container with the structure of sub containers loaded
 lazily from a directory tree.
 
-=item C<loader>
-
-Returns Bread::Board::LazyLoader object with all container files found 
-
 =back
 
 =head2 import parameters
@@ -133,11 +129,14 @@ sub _build {
 
     return {
         loader => sub {
-            my $loader = $base? $base->loader: Bread::Board::LazyLoader->new;
+            my $loader = Bread::Board::LazyLoader->new;
             $loader->add_tree( $dir, $suffix );
             return $loader;
         },
-        root => sub { shift()->loader->build },
+        root => sub {
+            my $this = shift;
+            return $this->loader->build( $base ? $base->root(@_) : @_ );
+        },
     };
 }
 

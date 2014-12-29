@@ -1,6 +1,8 @@
 use strict;
 use warnings;
 
+use Bread::Board;
+
 sub {
     container shift() => as {
         service dbh => 'DBH';

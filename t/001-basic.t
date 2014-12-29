@@ -25,6 +25,11 @@ subtest 'No file'  => sub {
     is($c->name, 'A');
 };
 
+subtest 'Name can be passed' => sub {
+    my $c = Bread::Board::LazyLoader->new(name => 'A')->build('Database');
+    is($c->name, 'Database');
+};
+
 # only root file
 subtest 'Only root file' => sub {
     my $file = create_builder_file(<<'END_FILE');
@@ -134,6 +139,88 @@ END_FILE
     is_deeply( { map { ( $_ => 1 ) } $database->get_service_list },
         { s1 => 1, s2 => 1, s3 => 1 } );
     is( $database->resolve( service => 's3' ), 'AB' );
+};
+
+subtest 'Two loaders combination, second loader modifying the result of the previous' => sub {
+    my $loader = Bread::Board::LazyLoader->new;
+    $loader->add_file(
+        create_builder_file(<<'END_FILE')
+use strict;
+use Bread::Board;
+sub {
+    my $name = shift;
+    container $name => as {
+	service first => 'FIRST';
+	service combo => 'c1';
+    };
+};
+END_FILE
+        ,
+        'l1/l2'
+    );
+
+
+    # modifying nested from the root
+    my $loader2 = Bread::Board::LazyLoader->new;
+    $loader2->add_file(
+        create_builder_file(<<'END_FILE')
+use strict;
+use Bread::Board;
+sub {
+    my $c             = shift;
+    # trying to replace the nested service
+    my $combo_service = $c->fetch('l1/l2/combo');
+    container(
+        $combo_service->parent,
+        sub {
+            service combo => (
+                block => sub {
+                    $combo_service->get . ' c2-root';
+                }
+            );
+        }
+    );
+    # we must return $c
+    $c;
+};
+END_FILE
+    );
+
+    # modifying nested directly 
+    $loader2->add_file(
+        create_builder_file(<<'END_FILE')
+use strict;
+use Bread::Board;
+sub {
+    my $c             = shift;
+    my $combo_service = $c->fetch('combo');
+    container $c => as {
+            service combo => (
+                block => sub {
+                    $combo_service->get . ' c2-nested';
+                }
+            );
+        };
+};
+END_FILE
+	, 'l1/l2',
+    );
+
+    my $c = $loader2->build($loader->build());
+    my $combo = $c->fetch('l1/l2/combo')->get;
+    is($combo, 'c1 c2-root c2-nested', "The service was properly combined");
+
+};
+
+subtest "Sandboxing file" => sub {
+    my $loader = Bread::Board::LazyLoader->new;
+    $loader->add_file('t/files/Root.ioc');
+    my $c       = $loader->build();
+    my $package = $c->fetch('package')->get;
+    is( $package,
+        'Bread::Board::LazyLoader::Sandbox::t_2ffiles_2fRoot_2eioc',
+        "Code in a file is evaluated in special package"
+    );
 };
 
 done_testing();

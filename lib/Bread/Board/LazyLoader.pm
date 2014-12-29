@@ -172,7 +172,8 @@ Builds the current container. Each call of <build> returns a new container.
 =cut
 
 use Moose::Util ();
-use Bread::Board qw(include);
+use Bread::Board;
+use Bread::Board::LazyLoader::Container;
 use Carp qw(croak);
 
 has name => ( is => 'ro', required => 1, default => 'Root' );
@@ -185,11 +186,6 @@ has builders => (
     is      => 'ro',
     isa     => 'ArrayRef[ArrayRef]',
     default => sub { [] },
-    traits  => ['Array'],
-    handles => {
-        _add_builder => 'push',
-        _get_builders => 'elements',
-    }
 );
 
 # builders for sub_containers
@@ -197,12 +193,27 @@ has sub_builders => (
     is      => 'ro',
     isa     => 'HashRef',
     default => sub { {} },
-    traits  => ['Hash'],
 );
 
-has container_role => ( is => 'ro', 
-	default => __PACKAGE__ . '::Container',
+has container_role => (
+    is      => 'ro',
+    default => __PACKAGE__ . '::Role::Container',
 );
+
+has container_class => (
+    is      => 'ro',
+    default => __PACKAGE__ . '::Container',
+);
+
+sub new_sub_builder {
+    my $this = shift;
+    return ref($this)->new(@_);
+}
+
+sub new_container {
+    my $this = shift;
+    return $this->container_class->new(@_);
+}
 
 sub _add {
     my ( $this, $builder, $where ) = @_;
@@ -211,7 +222,7 @@ sub _add {
         or return push @{ $this->builders }, $builder;
 
     my $sub_builder = $this->sub_builders->{$sub_name}
-        ||= ref($this)->new( name => $sub_name );
+        ||= $this->new_sub_builder( name => $sub_name);
     $sub_builder->_add( $builder, $rest );
 }
 
@@ -257,28 +268,50 @@ sub _add_tree {
     closedir $dh;
 }
 
+# ->build($container) ...
+# ->build($name) ...
+# ->build() ...
 sub build {
-    my ( $this, $c ) = @_;
+    my ( $this, $in ) = @_;
 
     # applying the builders
-    for my $builder ( $this->_get_builders ) {
+    my $cc = $in || $this->name;
+    for my $builder ( @{$this->builders} ) {
         my ( $type, $value ) = @$builder;
 
         my $method = '_apply_' . $type;
-        my $cc = $this->$method( $c || $this->name, $value );
+        $cc = $this->$method( $cc, $value );
         blessed($cc) && $cc->isa('Bread::Board::Container')
             or croak $this->_error_msg("Builder did not return a container");
         $cc->name eq $this->name
             or croak $this->_error_msg("Builder returns container with different name '". $cc->name. "'");
-        $c = $cc;
     }
 
     # there may be no builders caused by "inner" container on the way
-    $c ||= Bread::Board::Container->new( name => $this->name );
+    my $c
+        = blessed($cc)
+        ? $cc
+        : $this->new_container( name => $cc );
 
     Moose::Util::ensure_all_roles( $c, $this->container_role );
-    %{ $c->sub_builders } = %{ $this->sub_builders };
+    for my $name ( keys %{$this->sub_builders} ){
+	my $old = $c->sub_builders->{$name};
+	my $new = $this->sub_builders->{$name};
+	$c->sub_builders->{$name} = $old? $old->_merge( $new): $new;
+    }
     return $c;
+}
+
+sub _merge {
+    my ( $this, $new ) = @_;
+
+    my $builder = $this->new_sub_builder( name => $this->name );
+    $builder->add_code(
+        sub {
+ 	    return $new->build( $this->build( @_  ) );
+        }
+    );
+    return $builder;
 }
 
 sub _error_msg {
@@ -287,12 +320,25 @@ sub _error_msg {
     return "$msg, while building '" . $this->name . "' container\n";
 }
 
-
+# loads file in a sandbox package
 sub get_code_from {
-    my ($this, $file) = @_;
+    my ( $this, $file ) = @_;
 
-    my $code = include($file);
-    ref($code) eq 'CODE' or croak $this->_error_msg("File '$file' did not return a coderef");
+    my $package = $file;
+    $package =~ s/([^A-Za-z0-9_])/sprintf("_%2x", unpack("C", $1))/eg;
+
+    my $code = eval sprintf <<'END_EVAL', __PACKAGE__, $package;
+package %s::Sandbox::%s;
+{
+    my $code = do $file;
+    if ( !$code && ( my $error = $@ || $! )) { die $error; }
+    $code;
+}
+END_EVAL
+
+    croak $this->_error_msg("Evaluation of '$file' failed with: $@") if $@;
+    ref($code) eq 'CODE'
+        or croak $this->_error_msg("File '$file' did not return a coderef");
     return $code;
 }
 
