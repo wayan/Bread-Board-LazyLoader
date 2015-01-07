@@ -1,6 +1,10 @@
 Revision history for Bread::Board::LazyLoader
 
-0,08 Monday, Dec. 29th 2014
+0.09 Wednesday, Jan. 07th 2015
+
+- corrected typo in Supersite (separator of modules should be ';' not ':')
+
+0.08 Monday, Dec. 29th 2014
 
 - more than one loader can modify a single container (loaders can be stacked)
    in such case the next loader sees all changes applied by previous one

@@ -77,11 +77,11 @@ sub _load_file_site {
     };
 }
 
-# the variable may contain more than one site (either module or file) separated by colon
+# the variable may contain more than one site (either module or file) separated by semicolon
 sub _load_var_sites {
     my ($content) = @_;
 
-    my @content = split /:/, $content;
+    my @content = split /;/, $content;
     return
         map { m{/} ? _load_file_site($_) : _load_module_site($_); } @content;
 }
