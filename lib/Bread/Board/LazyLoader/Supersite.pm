@@ -7,7 +7,7 @@ use warnings;
 
 =head1 SYNOPSIS
 
-    package MY::IOC;
+    package MyApp::IOC;
     use strict;
     use warnings;
 
@@ -18,9 +18,107 @@ use warnings;
             filter => qr{^[a-z]}
         };
 
+    # in scripts, psgi apps
+
+    use MyApp::IOC;
+
+    my $root = MyApp::Root->root;
+    $root->fetch('Scripts/MyApp-Web')->get()->run();
+
 =head1 DESCRIPTION
 
-This module is yet quite experimental.
+This module creates a single proxy subroutine for IOC root, 
+which may be loaded from different modules (for example 
+national specific).
+
+Better with example:
+
+We have two instances of our application, czech and slovak, with IOC roots
+implemented in C<< MyApp::Site::cz->root >> and C<< MyApp::Site::sk->root >>.
+In each instance of our app only one this modules is installed.
+
+Most of the scripts (tests, psgi files, ...) referencing the IOC root 
+are not nationally specific, so we prefer them to use some common name.
+
+Having defined "dispatcher" ioc module like this:
+
+   package MyApp::IOC;
+   use strict;
+
+   use Bread::Board::LazyLoader::SuperSite 
+	site => {
+		prefix => 'MyApp::Site',
+		filter => qr{^[a-z]},
+	};
+
+   1;
+
+We can use C<< MyApp::IOC->root >> uniformly to get our IOC root of the application, 
+which returns either C<< MyApp::Site::cz->root >> or C<< MyApp::Site::sk->root >> depending
+on site.
+
+Import looks through all C<< MyApp::Site::* >> installed modules and tries to find one
+with next part starting with lowercase letter (lowercase, so that our base IOC module C<< MyApp::Site::Core >> is not found).
+There must be exactly one such module or C<< use Bread::Board::LazyLoader::Supersite >> fails.
+
+=head2 import parameters
+
+   use Bread::Board::LazyLoader::Supersite %params;
+
+=over 4
+
+=item env_var=NAME 
+
+The content of environment variable (if set) is used as site module (the one with root method).
+There may be more than one modules separated by semicolon inside env var.
+
+With 
+
+    package MyApp::IOC;
+    use strict;
+    use warnings;
+
+    use Bread::Board::LazyLoader::SuperSite env_var => 'MY_APP_SITE';
+
+and 
+	
+    MY_APP_SITE='MyApp::Site::Sandbox;MyApp::Site::cz'
+
+then
+
+   MyApp::IOC->root
+
+returns
+
+   MyApp::Site::Sandbox->root( MyApp::Site::cz->root )
+
+
+Environment variable may even contain paths:
+
+    MY_APP_SITE="$HOME/app/sandbox.ioc;MyApp::Site::cz"
+
+With C<< $HOME/app/sandbox.ioc >>
+
+    use Bread::Board;
+    sub {
+	my $c = shift;
+
+	# $c here is MyApp::Site::cz->root
+
+	container $c => as {
+		service dbh => some_mocked_dbh();
+	};
+    };
+
+If C<env_var> option is used (and the appropriate variable set), it has priority over C<site> option.
+
+=item site   
+
+Used either like C<< site => $module >> or C<< site => { prefix => $module_prefix, filter => $name_filter_re } >>.    
+
+Dispatches the C<< root >> to appropriate module. There may be just one.
+
+=back
 
 =cut 
 
@@ -38,24 +136,17 @@ sub import {
 
     # sites is a list of subroutines building the container
     my @sites = _get_sites(@_);
-    my %to_import = (
 
-        # site   => sub { $site },
-        root => sub {
-            my $this = shift;
-	    # there may be more than one site
-            my ($first, @next) = reverse @sites;
-            my $root = $first->(@_);
-	    $root = $_->($root) for @next;
-	    return $root;
-        }
-    );
+    no strict 'refs';
+    *{ caller . '::' . 'root' } = sub {
+        my $this = shift;
 
-    my $caller_package = caller;
-    for my $method ( keys %to_import ) {
-        no strict 'refs';
-        *{ join '::', $caller_package, $method } = $to_import{$method};
-    }
+        # there may be more than one site
+        my ( $first, @next ) = reverse @sites;
+        my $root = $first->(@_);
+        $root = $_->($root) for @next;
+        return $root;
+    };
 }
 
 sub _load_module_site {

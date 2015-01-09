@@ -38,17 +38,9 @@ in the script
 
 =head1 DESCRIPTION
 
-Bread::Board::LazyLoader::Site is an abstraction on top of Bread::Board::LazyLoader.
-When used import into caller two class methods 
+Site module is a module with a class method C<root> returning an instance of C<Bread::Board::Container>.
 
-=over 4
-
-=item C<root>
-
-Returns Bread::Board container with the structure of sub containers loaded
-lazily from a directory tree.
-
-=back
+C<Bread::Board::LazyLoader::Site> just imports such C<root> method.
 
 =head2 import parameters
 
@@ -67,19 +59,19 @@ Suffix of container files. By default C<ioc>.
 
 =item base
 
-Another site module (must have C<loader> method). All container files are loaded on top of the base file containers.
+Another site module. All container files are loaded on top of the base file containers.
 
 =back
 
 =cut
 
-# imports methods loader and root into caller's namespace
+# imports methods root into caller's namespace
+
 use Bread::Board::LazyLoader;
 use Carp qw(confess croak);
 use Class::Load;
 
-# import imports into caller namespace 2 class methods
-# loader - returns Bread::Board::LazyLoader instance
+# import imports into caller namespace 
 # root   - returns the appropriate root
 
 sub import {

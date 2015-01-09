@@ -1,5 +1,9 @@
 Revision history for Bread::Board::LazyLoader
 
+0.10 Friday, Jan. 09th 2015
+
+- added docs and test for Bread::Board::LazyLoader::Supersite
+
 0.09 Wednesday, Jan. 07th 2015
 
 - corrected typo in Supersite (separator of modules should be ';' not ':')

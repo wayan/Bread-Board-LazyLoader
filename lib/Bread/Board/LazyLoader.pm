@@ -162,10 +162,13 @@ Having files C<./IOC/Root.ioc>, C<./IOC/Database.ioc>, C<./IOC/WebServices/REST.
 then C<< $loader->add('./IOC', 'ioc') >> adds first file into current container 
 (if its name is Root), the other files cause subcontainers to be created.
 
-
 =item C<build>
 
-Builds the current container. Each call of <build> returns a new container.
+Builds the container. Each call of <build> returns a new container.
+
+=item C<build($container)>
+
+Modify existing container (it the builders allow it).
 
 =back
 
