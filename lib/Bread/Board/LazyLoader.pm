@@ -176,71 +176,80 @@ Modify existing container (it the builders allow it).
 
 use Moose::Util ();
 use Bread::Board;
-use Bread::Board::LazyLoader::Container;
-use Carp qw(croak);
+use List::MoreUtils qw(uniq);
+#use Bread::Board::LazyLoader::Container;
+use Carp qw(confess);
 
+# default name
 has name => ( is => 'ro', required => 1, default => 'Root' );
 
 # remember the subs returned from builder files
 has cache_codes => ( is => 'ro', default => 1 );
 
 # builders (files and codes) for current container
-has builders => (
-    is      => 'ro',
-    isa     => 'ArrayRef[ArrayRef]',
-    default => sub { [] },
-);
-
-# builders for sub_containers
-has sub_builders => (
-    is      => 'ro',
-    isa     => 'HashRef',
-    default => sub { {} },
-);
-
-has container_role => (
-    is      => 'ro',
-    default => __PACKAGE__ . '::Role::Container',
-);
+has builders => ( is => 'ro', isa => 'ArrayRef', default => sub { [] }, );
 
 has container_class => (
     is      => 'ro',
-    default => __PACKAGE__ . '::Container',
+    default => 'Bread::Board::Container',
 );
 
-sub new_sub_builder {
+sub get_builder_paths {
     my $this = shift;
-    return ref($this)->new(@_);
+    my $prefix = shift // '';
+
+    return grep { $prefix eq '' || m{^$prefix(?:/|$)} }
+        map { $_->[0] } @{ $this->builders };
 }
 
-sub new_container {
-    my $this = shift;
-    return $this->container_class->new(@_);
+sub _normalize_path {
+    my ($path) = @_;
+
+    return
+        defined $path
+        ? join( '/', grep { length($_) > 0 } split m{/}, $path )
+        : '';
 }
 
-sub _add {
-    my ( $this, $builder, $where ) = @_;
+sub _sub_path {
+    my ($parent, $name) = @_;
 
-    my ( $sub_name, $rest ) = defined $where ? $where =~ m{([^/]+)(.*)} : ()
-        or return push @{ $this->builders }, $builder;
-
-    my $sub_builder = $this->sub_builders->{$sub_name}
-        ||= $this->new_sub_builder( name => $sub_name);
-    $sub_builder->_add( $builder, $rest );
+    return join '/', grep { $_ ne ''} $parent, $name;
 }
+
+sub add_builder {
+    my ($this, $path, $code) = @_;
+
+    push @{$this->builders}, [ $path, $code ];
+}
+
 
 sub add_file {
     my ( $this, $file, $where ) = @_;
 
-    $this->_add( [ file => $file ], $where );
+    -f $file or confess "No file '$file' found";
+
+    $this->add_builder(
+        _normalize_path($where),
+        sub {
+            my ($this, $c) = @_;
+            $this->apply_file($c, $file);
+        }
+    );
 }
 
 sub add_code {
     my ( $this, $code, $where ) = @_;
 
     ref($code) eq 'CODE'
-        or croak "\$builder->add_code( CODEREF, [ \$under ])\n";
-    $this->_add( [ code => $code ], $where );
+        or confess "\$builder->add_code( CODEREF, [ \$under ])\n";
+    $this->add_builder(
+        _normalize_path($where),
+        sub {
+            my ($this, $c) = @_;
+            $this->apply_code($c, $code);
+        }
+    );
 }
 
 sub add_tree {
@@ -275,52 +284,86 @@ sub _add_tree {
 # ->build($name) ...
 # ->build() ...
 sub build {
-    my ( $this, $in ) = @_;
-
-    # applying the builders
-    my $cc = $in || $this->name;
-    for my $builder ( @{$this->builders} ) {
-        my ( $type, $value ) = @$builder;
-
-        my $method = '_apply_' . $type;
-        $cc = $this->$method( $cc, $value );
-        blessed($cc) && $cc->isa('Bread::Board::Container')
-            or croak $this->_error_msg("Builder did not return a container");
-        $cc->name eq $this->name
-            or croak $this->_error_msg("Builder returns container with different name '". $cc->name. "'");
-    }
-
-    # there may be no builders caused by "inner" container on the way
-    my $c
-        = blessed($cc)
-        ? $cc
-        : $this->new_container( name => $cc );
-
-    Moose::Util::ensure_all_roles( $c, $this->container_role );
-    for my $name ( keys %{$this->sub_builders} ){
-	my $old = $c->sub_builders->{$name};
-	my $new = $this->sub_builders->{$name};
-	$c->sub_builders->{$name} = $old? $old->_merge( $new): $new;
-    }
-    return $c;
+    my ( $this, $arg ) = @_;
+    return $this->_build_container( '', $arg // $this->name );
 }
 
-sub _merge {
-    my ( $this, $new ) = @_;
+sub _build_container {
+    my ($this, $path, $in) = @_;
 
-    my $builder = $this->new_sub_builder( name => $this->name );
-    $builder->add_code(
-        sub {
- 	    return $new->build( $this->build( @_  ) );
+    # applying builders
+    my @builders = map {
+        my ( $builder_path, $builder ) = @$_;
+        $builder_path eq $path ? $builder : ();
+    } @{ $this->builders };
+
+    my $c = $this->_apply_builders($path, $in, @builders);
+    my $cc = ref $c? $c: $this->container_class->new(name => $c);
+    Moose::Util::apply_all_roles($cc, $this->lazy_sub_container_role($path));
+    return $cc;
+}
+
+sub _apply_builders {
+    my ( $this, $path, $in, @builders ) = @_;
+
+    my ( $builder, @rest ) = @builders or return $in;
+
+    my $c = $this->$builder($in);
+    blessed($c) && $c->isa('Bread::Board::Container')
+        or confess "Builder for '$path' did not return a container";
+
+    my $name = ref($in) ? $in->name : $in;
+    $c->name eq $name
+        or confess
+        "Builder for '$path' returned container with unexpected name ('"
+        . $c->name . "')";
+    return $this->_apply_builders( $path, $c, @rest );
+}
+
+sub lazy_sub_container_role {
+    my ( $this, $path ) = @_;
+
+    my %sub_containers;
+
+    my $meta = Moose::Meta::Role->create_anon_role();
+    $meta->add_around_method_modifier(
+        has_sub_container => sub {
+            my ( $orig, $container, $name ) = @_;
+
+            return $container->$orig($name)
+                || $this->get_builder_paths( _sub_path( $path, $name ) )
+                || 0;
+        },
+    );
+    $meta->add_around_method_modifier(
+        get_sub_container_list => sub {
+            my ( $orig, $container ) = @_;
+
+            my $prefix = $path eq ''? $path: "$path/";
+            return uniq( $container->$orig, map {
+                 m{^$prefix([^/]+)}; } $this->get_builder_paths($path) );
         }
     );
-    return $builder;
-}
 
-sub _error_msg {
-    my ( $this, $msg ) = @_;
+    $meta->add_around_method_modifier(
+        get_sub_container => sub {
+            my ( $orig, $container, $name ) = @_;
 
-    return "$msg, while building '" . $this->name . "' container\n";
+            return $sub_containers{$name} if exists $sub_containers{$name};
+
+            my $sub_container  = $container->$orig($name);
+            my $sub_path       = _sub_path( $path, $name );
+            my $builder_exists = $this->get_builder_paths($sub_path);
+
+            return $sub_containers{$name} = (
+                ($builder_exists || $sub_container)
+                ? $this->_build_container( $sub_path,
+                    $sub_container // $name )
+                : undef
+            );
+        }
+    );
+    return $meta;
 }
 
 # loads file in a sandbox package
@@ -339,9 +382,9 @@ package %s::Sandbox::%s;
 }
 END_EVAL
 
-    croak $this->_error_msg("Evaluation of '$file' failed with: $@") if $@;
+    confess "Evaluation of '$file' failed with: $@" if $@;
     ref($code) eq 'CODE'
-        or croak $this->_error_msg("File '$file' did not return a coderef");
+        or confess "Evaluation of file '$file' did not return a coderef";
     return $code;
 }
 
@@ -354,14 +397,13 @@ around get_code_from => sub {
         : $this->$orig($file);
 };
 
-sub _apply_file {
+sub apply_file {
     my ( $this, $c, $file ) = @_;
 
-    -f $file or croak $this->_error_msg("File '$file' does not exist");
-    return $this->get_code_from($file)->($c);;
+    return $this->get_code_from($file)->($c);
 }
 
-sub _apply_code {
+sub apply_code {
     my ( $this, $c, $code ) = @_;
 
     return $code->($c);

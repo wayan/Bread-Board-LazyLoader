@@ -13,13 +13,9 @@ subtest 'File does not exist' => sub {
     my $loader = Bread::Board::LazyLoader->new;
 
     my $file = 'this_file_doesnot_exist.bb';
-    lives_ok {
-    $loader->add_file($file);
-    } "Existence of file is checked in build time";
-    
     throws_ok {
-        my $c = $loader->build;
-    } qr{^\QFile '$file' does not exist, while building 'Root' container};
+        $loader->add_file($file);
+    } qr{\QNo file '$file' found};
 };
 
 subtest 'File does not return coderef' => sub {
@@ -32,7 +28,7 @@ END_FILE
     $loader->add_file($file);
     throws_ok {
         my $c = $loader->build;
-    } qr{^\QFile '$file' did not return a coderef, while building 'Database' container};
+    } qr{^\QEvaluation of file '$file' did not return a coderef};
 };
 
 subtest 'File returns a coderef, which doesnot return a container' => sub {
@@ -52,7 +48,7 @@ END_FILE
     $loader->add_file($file);
     throws_ok {
         my $c = $loader->build;
-    } qr{^\QBuilder did not return a container, while building 'Root' container};
+    } qr{^\QBuilder for '' did not return a container};
 };
 
 subtest 'File returns a coderef, which returns a container with different name' => sub {
@@ -68,7 +64,7 @@ END_FILE
     $loader->add_file($file);
     throws_ok {
         my $c = $loader->build;
-    } qr{^\QBuilder returns container with different name 'C', while building 'WebServices' container};
+    } qr{^\QBuilder for '' returned container with unexpected name ('C')};
 };
 
 done_testing();
