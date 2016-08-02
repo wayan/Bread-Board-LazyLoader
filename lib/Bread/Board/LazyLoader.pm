@@ -1,379 +1,227 @@
 package Bread::Board::LazyLoader;
 
-use Moose;
+use common::sense;
 
-# ABSTRACT: lazy loader for Bread::Board containers
+# ABSTRACT: loads lazily Bread::Board containers from files
 
 =head1 SYNOPSIS
 
-    package MyApp::IOC;
-    use strict;
-    use warnings;
+    use Bread::Board::LazyLoader qw(load_container);
 
-    use Path::Class qw(dir);
-    use Bread::Board::LazyLoader;
+    # having files defining Bread Board containers
 
-    # loads all *.ioc files under .../MyApp/IOC/
-    # from each .../MyApp/IOC/<REL_PATH>.ioc file
-    # a <REL_PATH> subcontainer is created
-    # from .../MyApp/IOC/Root.ioc a root container is created
-    #
-    # examples
-    # file .../MyApp/IOC/Root.ioc defines the root container
-    # file .../MyApp/IOC/Database.ioc defines the Database subcontainer 
-    # file .../MyApp/IOC/WebServices/Extranet.ioc defines the WebServices/Extranet subcontainer
+    # ./ioc/Root.ioc
+    # ./ioc/Database.ioc
+    # ./ioc/Webapp/Rating.ioc
 
-    sub loader {  
-        my $dir = __FILE__;
-        $dir =~ s/\.pm$//;
+    # we can load them with
 
-        my $loader = Bread::Board::LazyLoader->new;
+    my $root
+        = load_container( root_dir => './ioc', filename_extension => '.ioc', );
 
-        dir($dir)->traverse(sub {
-            my ($f, $cont, $rel) = @_;
+    # then $root container is defined by file Root.ioc
+    # $root->fetch('Database') is defined by file Database.ioc
+    # $root->fetch('Webapp/Rating.ioc') is defined by
 
-            return $cont->( [ $rel ? @$rel : (), $f->basename ] ) if -d $f;
-            my ($name) = -f $f && $f->basename =~ /(.*)\.bb$/
-                or return;
+    # but all files except of Root.ioc are loaded lazily when the respective
+    # container is needed (usually when a service from the container is
+    # resolved by a dependency) 
 
-            $loader->add_file( $f,
-                $name eq 'Root' && @$rel == 1
-                ? ()
-                : join( '/', ( splice @$rel, 1, ), $name ) );
-        });
-        return $loader->build;
-    }
-
-    sub root {
-        my $this = shift;
-        return $this->loader(@_)->build;
-    }
 
 =head1 DESCRIPTION
 
-Imagine we have a large L<Bread::Board> root container (with nested subcontainers). 
-This container is used among scripts, psgi application files, ...
-Each place of usage uses only part of the tree (usually it resolves one service only).
+Bread::Board::LazyLoader loads a Bread::Board container from a directory
+(directories) with files defining the container.
 
-You can have the root container defined in a single file, but such extensive file can be hard to maintain.
-Also the complete structure is loaded in every place of usage, 
-which can be quite consuming (if some part of your tree is an L<OX> aplication for example). 
+The container returned can also loads lazily its sub containers from the same directories.
 
-Bread::Board::LazyLoader enables you to define your containers (subcontainers) 
-in independent files which are loaded lazily when the container is asked for
-(C<< $parent->get_subcontainer >>).
+=head1 FUNCTIONS
 
-Having our IOC root defined like
+All functions are imported on demand.
 
-    my $dir     = '...';
-    my $builder = Bread::Board::LazyLoader->new;
-    $builder->add_file("$dir/Root.ioc");
-    $builder->add_file( "$dir/Database.ioc"    => 'Database' );
-    $builder->add_file( "$dir/WebServices.ioc" => 'WebServices' );
-    $builder->add_file( "$dir/Integration.ioc" => 'Integration' );
-    $builder->build;
+=head2 load_container(%params)
 
-we can have Integration/manager service resolved in a script 
-while the time consuming WebServices container (OX application)
-is not loaded.
+Loads the container. The parameters are:
 
-=head2 Definition file
+=over 4
 
-Definition file for a container is a perl file returning 
-(the last expression of file is) an anonymous subroutine.
+=item root_dir
 
-The subroutine is called with the name of the container 
-and returns the container (L<Bread::Board::Container> instance)
-with the same name.
+The directory (directories) to be traversed for container definition files.
+Either string or an arrayref of strings. Mandatory parameter.
 
-The file may look like:
+=item filename_extension
+
+The extension of files (without dot) which are searched for container definitions.
+Mandatory parameter.
+
+=item container_name
+
+The name of created container. Also the basename of the file which contains it.
+"Root" by default.
+
+=item container_factory
+
+An anonymous subroutine used to create "intermediate" containers for directories - the ones
+having no definition files. By default it is:
+
+    sub {
+        my ($name) = @_;
+        return Bread::Board::Container->new(name => $name);
+    }
+
+=back
+
+C<< load_container >>  searches under supplied root directories for plain files 
+with the extension. Found files found are used to build root container or its subcontainers. 
+The position of container in the hierarchy of the containers is same as the
+relative path of the file (minus extension) under root directory.
+
+The exception is the file C<< Root >>.extension which defines the root container
+itself, not its subcontainer called C<< Root >>.
+
+The container is built from its first definition file (the files are ordered
+according their appropriate root in root_dir parameter).
+
+Definition file for a container is a perl code file returning (its last expression is) 
+an anonymous subroutine - a container builder.
+
+The container builder is called like:
+
+    my $container = $builder->($name, $next);
+
+First argument to builder is a container name (the basename of the file found),
+the second an anonymous subroutine creating the container via next definition file (if any) 
+or by calling the container factory.
+
+The definition file may look like:
 
     use strict;
     use Bread::Board;
 
     sub {
         my $name = shift;
-        container $name => as {
-            ...
+        return container $name => as {
+                service psgi => (...);
         }
     };
 
-Of course we can create the instance of our own container
+Wwhen there is more than one root directory, the most specific should be
+mentioned first and their would look like:
 
     use strict;
     use Bread::Board;
-    
-    use MyApp::Extranet; # our big OX based application
 
     sub {
-        my $name = shift;
-        MyApp::Extranet->new(
-            name => $name
-        );
+        my ($name, $next) = @_;
+
+        my $c = $next->();
+        return container $c => as {
+            # modifying container specified by more generic files
+                service psgi => (...);
+        }
     };
 
-A single container can be built from more definition files,
-the subroutine from second file is then called with the container created
-by the first subroutine call: C<< my $container = $sub3->($sub2->($sub1->($name))); >>
 
-The construction C<< container $name => as { ... }; >> from L<Bread::Board>
-can be used even when C<< $name >> is a container, not a name.
+The builder must return a Bread::Board container (an instance of Bread::Board::Container or its subclass)
+with name C<< $name >>.
 
-The definition files (the subroutines) are applied 
-even if the container was already created inside parent container.
+Every file is evaluated in a "sandbox", i.e. artificially created package, 
+thus all imports and sub definitions in the file are private and not shared.
 
-=head1 METHODS
-
-=over 4
-
-=item C<new(%args)>
-
-Constructor with optional arguments
-
-=over 4
-
-=item name
-
-The name of container built, default is C<Root>.
-
-=item cache_codes
-
-Whether the subroutines returned from builder files are remembered.
-Default is 1.
-
-=back
-
-=item C<add_file(FILE, [ UNDER ])>
-
-Adds a file building the current or nested container. 
-Optional second parameter is is a path to nested container.  
-
-=item C<add_code(CODEREF, [ UNDER ])>
-
-Similar to add_file, but the anonymous subroutine is passed directly
-not loaded from a file.
-
-=item C<add_tree(DIR, EXTENSION, [ UNDER ])>
-
-Adds all files under directory with given extension (without leading .) to
-builder.
-
-Having files C<./IOC/Root.ioc>, C<./IOC/Database.ioc>, C<./IOC/WebServices/REST.ioc>
-then C<< $loader->add('./IOC', 'ioc') >> adds first file into current container 
-(if its name is Root), the other files cause subcontainers to be created.
-
-=item C<build>
-
-Builds the container. Each call of <build> returns a new container.
-
-=item C<build($container)>
-
-Modify existing container (it the builders allow it).
-
-=back
+The root container is built immediately, the subcontainers (their files) 
+are built lazily, typically when a service from them is needed.
 
 =cut
 
-use Moose::Util ();
-use Bread::Board;
-use List::MoreUtils qw(uniq);
-#use Bread::Board::LazyLoader::Container;
+use Exporter 'import';
+
+use Path::Class;
+use Type::Params;
+use Types::Standard qw(is_CodeRef slurpy Dict ArrayRef Str Optional CodeRef Object is_Object is_ArrayRef);
 use Carp qw(confess);
+use Moose::Meta::Role ();
+use Moose::Util;
+use List::MoreUtils qw(uniq);
+use Bread::Board::Container;
 
-# default name
-has name => ( is => 'ro', required => 1, default => 'Root' );
+our @EXPORT_OK = qw(load_container);
 
-# remember the subs returned from builder files
-has cache_codes => ( is => 'ro', default => 1 );
+# legacy code
+sub new {
+    require Bread::Board::LazyLoader::Obj;
+    shift();
+    Bread::Board::LazyLoader::Obj->new(@_);
+}
 
-# builders (files and codes) for current container
-has builders => ( is => 'ro', isa => 'ArrayRef', default => sub { [] }, );
-
-has container_class => (
-    is      => 'ro',
-    default => 'Bread::Board::Container',
+my $load_container_params = Type::Params::compile(
+    slurpy Dict [
+        root_dir => Str | ArrayRef [Str],
+        filename_extension => Str,
+        container_name     => Optional [Str],
+        container_factory  => Optional [CodeRef],
+    ]
 );
 
-sub get_builder_paths {
-    my $this = shift;
-    my $prefix = shift // '';
+sub load_container {
+    my ($params) = $load_container_params->(@_);
 
-    return grep { $prefix eq '' || m{^$prefix(?:/|$)} }
-        map { $_->[0] } @{ $this->builders };
+    my @root_dirs = map { is_ArrayRef($_) ? @$_ : $_ } $params->{root_dir};
+    my $filename_extension = $params->{filename_extension};
+    my $container_name     = $params->{container_name} // 'Root';
+    my $container_factory  = $params->{container_factory} // sub {
+        my ($name) = @_;
+        return Bread::Board::Container->new( name => $name );
+    };
+
+    my $file_suffix = '.' . $filename_extension;
+    my $node
+        = _make_node( \@root_dirs, $file_suffix, $container_name,
+        $container_factory );
+    return _load_node($node);
 }
 
-sub _normalize_path {
-    my ($path) = @_;
+# role lazily load the sub_containers
+sub _load_sub_container_role {
+    my ($children) = @_;
 
-    return
-        defined $path
-        ? join( '/', grep { length($_) > 0 } split m{/}, $path )
-        : '';
-}
-
-sub _sub_path {
-    my ($parent, $name) = @_;
-
-    return join '/', grep { $_ ne ''} $parent, $name;
-}
-
-sub add_builder {
-    my ($this, $path, $code) = @_;
-
-    push @{$this->builders}, [ $path, $code ];
-}
-
-
-sub add_file {
-    my ( $this, $file, $where ) = @_;
-
-    -f $file or confess "No file '$file' found";
-
-    $this->add_builder(
-        _normalize_path($where),
-        sub {
-            my ($this, $c) = @_;
-            $this->apply_file($c, $file);
-        }
-    );
-}
-
-sub add_code {
-    my ( $this, $code, $where ) = @_;
-
-    ref($code) eq 'CODE'
-        or confess "\$builder->add_code( CODEREF, [ \$under ])\n";
-    $this->add_builder(
-        _normalize_path($where),
-        sub {
-            my ($this, $c) = @_;
-            $this->apply_code($c, $code);
-        }
-    );
-}
-
-sub add_tree {
-    my ( $this, $dir, $extension, $where ) = @_;
-
-    $this->_add_tree( $dir, $extension,
-        defined $where && $where =~ m{[^/]} ? $where : '' );
-}
-
-sub _add_tree {
-    my ( $this, $dir, $extension, $where ) = @_;
-
-    opendir( my $dh, $dir ) or die "can't opendir $dir: $!";
-    for my $basename ( grep { /[^\.]/ } readdir($dh) ) {
-        my $path = "$dir/$basename";
-        if ( -f $path ) {
-            if ( my ($name) = $basename =~ /(.*)\Q.$extension\E$/ ) {
-                $this->add_file( $path,
-                    !$where && $name eq $this->name
-                    ? ()
-                    : "$where/$name"  );
-            }
-        }
-        elsif ( -d $path ) {
-            $this->_add_tree( $path, $extension, "$where/$basename");
-        }
-    }
-    closedir $dh;
-}
-
-# ->build($container) ...
-# ->build($name) ...
-# ->build() ...
-sub build {
-    my ( $this, $arg ) = @_;
-    return $this->_build_container( '', $arg // $this->name );
-}
-
-sub _build_container {
-    my ($this, $path, $in) = @_;
-
-    # applying builders
-    my @builders = map {
-        my ( $builder_path, $builder ) = @$_;
-        $builder_path eq $path ? $builder : ();
-    } @{ $this->builders };
-
-    my $c = $this->_apply_builders($path, $in, @builders);
-    my $cc = ref $c? $c: $this->container_class->new(name => $c);
-    Moose::Util::apply_all_roles($cc, $this->lazy_sub_container_role($path));
-    return $cc;
-}
-
-sub _apply_builders {
-    my ( $this, $path, $in, @builders ) = @_;
-
-    my ( $builder, @rest ) = @builders or return $in;
-
-    my $c = $this->$builder($in);
-    blessed($c) && $c->isa('Bread::Board::Container')
-        or confess "Builder for '$path' did not return a container";
-
-    my $name = ref($in) ? $in->name : $in;
-    $c->name eq $name
-        or confess
-        "Builder for '$path' returned container with unexpected name ('"
-        . $c->name . "')";
-    return $this->_apply_builders( $path, $c, @rest );
-}
-
-sub lazy_sub_container_role {
-    my ( $this, $path ) = @_;
-
-    my %sub_containers;
-
-    my $meta = Moose::Meta::Role->create_anon_role();
-    $meta->add_around_method_modifier(
+    my $role = Moose::Meta::Role->create_anon_role();
+    $role->add_around_method_modifier(
         has_sub_container => sub {
-            my ( $orig, $container, $name ) = @_;
+            my ( $orig, $this, $name ) = @_;
 
-            return $container->$orig($name)
-                || $this->get_builder_paths( _sub_path( $path, $name ) )
-                || 0;
-        },
-    );
-    $meta->add_around_method_modifier(
-        get_sub_container_list => sub {
-            my ( $orig, $container ) = @_;
-
-            my $prefix = $path eq ''? $path: "$path/";
-            return uniq( $container->$orig, map {
-                 m{^$prefix([^/]+)}; } $this->get_builder_paths($path) );
+            return $this->$orig($name) || exists $children->{$name};
         }
     );
-
-    $meta->add_around_method_modifier(
+    $role->add_around_method_modifier(
         get_sub_container => sub {
-            my ( $orig, $container, $name ) = @_;
+            my ( $orig, $this, $name ) = @_;
 
-            return $sub_containers{$name} if exists $sub_containers{$name};
-
-            my $sub_container  = $container->$orig($name);
-            my $sub_path       = _sub_path( $path, $name );
-            my $builder_exists = $this->get_builder_paths($sub_path);
-
-            return $sub_containers{$name} = (
-                ($builder_exists || $sub_container)
-                ? $this->_build_container( $sub_path,
-                    $sub_container // $name )
-                : undef
-            );
+            my $sub_container = $this->$orig($name);
+            if ( !$sub_container && $children->{$name} ) {
+                $sub_container = _load_node( $children->{$name} );
+                $this->add_sub_container($sub_container);
+            }
+            return $sub_container;
         }
     );
-    return $meta;
+    $role->add_around_method_modifier(
+        get_sub_container_list => sub {
+            my $orig = shift;
+            return uniq( $orig->(@_), keys %$children );
+        }
+    );
+    return $role;
 }
 
 # loads file in a sandbox package
-sub get_code_from {
-    my ( $this, $file ) = @_;
+sub _load_file_content {
+    my ( $file ) = @_;
 
     my $package = $file;
     $package =~ s/([^A-Za-z0-9_])/sprintf("_%2x", unpack("C", $1))/eg;
 
-    my $code = eval sprintf <<'END_EVAL', __PACKAGE__, $package;
+    my $code = eval sprintf <<'END_EVAL', 'Bread::Board::LazyLoader', $package;
 package %s::Sandbox::%s;
 {
     my $code = do $file;
@@ -388,28 +236,102 @@ END_EVAL
     return $code;
 }
 
-my %code_from;
-around get_code_from => sub {
-    my ( $orig, $this, $file ) = @_;
+sub _load_file {
+    my ( $name, $file, $next ) = @_;
 
-    return $this->cache_codes
-        ? $code_from{$file} ||= $this->$orig($file)
-        : $this->$orig($file);
-};
+    my $builder = _load_file_content($file);
+    is_CodeRef($builder)
+        or confess sprintf
+        "File '%s' returned wrong value, expected CodeRef, got '%s'",
+        $file, $builder;
 
-sub apply_file {
-    my ( $this, $c, $file ) = @_;
+    my $container = $builder->( $name, $next );
+    is_Object($container) && $container->isa('Bread::Board::Container')
+        or confess sprintf
+        "Container builder (coderef) from file '%s returned wrong value, expected Bread::Board::Container instance, got '%s'",
+        $file, $container;
+    $container->name eq $name
+        or confess sprintf
+        "Container builder (coderef) from file '%s returned container with wrong name, expected '%s', got '%s'",
+        $file, $name, $container->name;
 
-    return $this->get_code_from($file)->($c);
+    return $container;
 }
 
-sub apply_code {
-    my ( $this, $c, $code ) = @_;
+sub _load_files {
+    my ( $name, $files, $container_factory ) = @_;
 
-    return $code->($c);
+    return @$files
+        ? do {
+        my ( $file, @rest ) = @$files;
+        _load_file(
+            $name, $file,
+            sub {
+                _load_files( $name, \@rest, $container_factory );
+            }
+        );
+        }
+        : $container_factory->($name);
 }
 
-__PACKAGE__->meta->make_immutable;
+sub _load_node {
+    my ($node) = @_;
+
+    my ( $name, $files, $children, $container_factory ) = @$node;
+
+    my $container = _load_files( $name, $files, $container_factory );
+    Moose::Util::ensure_all_roles( $container,
+        _load_sub_container_role($children) );
+    return $container;
+}
+
+sub _make_node {
+    my ( $dirs, $suffix, $root_name, $container_factory ) = @_;
+
+    my $new = sub { [ shift(), [], {}, $container_factory ] };
+    my $add_to_parent = sub {
+        my ( $parent, $name ) = @_;
+        $parent->[2]{$name} //= $new->($name);
+    };
+    my $root = $new->($root_name);
+
+    for my $dir (@$dirs) {
+
+        # the only reason to pass coderef as third arg is that
+        # I do not want to create containers for empty dirs
+        dir($dir)->traverse(
+            sub {
+                my ( $f, $next, $level, $add ) = @_;
+
+                if ( -d $f ) {
+                    $next->(
+                        $level + 1,
+                        sub {
+                            $add_to_parent->(
+                                $add ? $add->( $f->basename ) : $root, shift()
+                            );
+                        }
+                    );
+                }
+                elsif ( -f $f ) {
+                    my ($name) = $f->basename =~ /(.*)$suffix$/ or return;
+
+                    my $node
+                        = $level == 1 && $name eq $root_name
+                        ? $root
+                        : $add->($name);
+
+                    push @{ $node->[1] }, "$f";
+                }
+            },
+            0,
+        );
+    }
+
+    return $root;
+}
+
 1;
 
 # vim: expandtab:shiftwidth=4:tabstop=4:softtabstop=0:textwidth=78: 
+

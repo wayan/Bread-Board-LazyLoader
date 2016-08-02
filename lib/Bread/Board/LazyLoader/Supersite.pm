@@ -1,4 +1,7 @@
-package Bread::Board::LazyLoader::Supersite;
+package # hide from PAUSE
+    Bread::Board::LazyLoader::Supersite;
+
+# DEPRECATED - use Bread::Board::LazyLoader qw(load_container)
 
 use strict;
 use warnings;

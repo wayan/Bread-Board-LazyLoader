@@ -1,5 +1,10 @@
 Revision history for Bread::Board::LazyLoader
 
+0.11 Tuesday, Aug. 2nd 2016
+
+- interface simplified to single function load_container
+- all other objects and classes deprecated
+
 0.10 Friday, Jan. 09th 2015
 
 - added docs and test for Bread::Board::LazyLoader::Supersite

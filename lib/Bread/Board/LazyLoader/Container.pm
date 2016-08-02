@@ -1,4 +1,7 @@
-package Bread::Board::LazyLoader::Container;
+package # hide from PAUSE
+  Bread::Board::LazyLoader::Container;
+
+# DEPRECATED - use Bread::Board::LazyLoader qw(load_container)
 use Moose;
 
 # ABSTRACT: building subcontainers lazily
