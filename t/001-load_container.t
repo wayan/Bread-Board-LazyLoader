@@ -29,7 +29,7 @@ subtest 'Simple container with one root' => sub {
     ok( !file_loaded($webapp_file),   "Webapp container not loaded" );
 
     my $root_package = $c->fetch('package')->get;
-    is( $root_package, 'Bread::Board::LazyLoader::Sandbox::t_2fdata_2fcore_2fRoot_2eioc', 'Root file is evaled in special package');
+    like( $root_package, qr{Bread::Board::LazyLoader::Sandbox::\d+::t_2fdata_2fcore_2fRoot_2eioc}, 'Root file is evaled in special package');
 
     my $db = $c->fetch('Database');
     ok( file_loaded($database_file), "Database container not loaded");

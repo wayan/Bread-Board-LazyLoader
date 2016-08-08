@@ -1,5 +1,10 @@
 Revision history for Bread::Board::LazyLoader
 
+0.12 Monday, Aug. 8th 2016
+
+- each evaluation of any file is performed in new "sandbox" package 
+- no_index section added to META.yml for deprecated packages 
+
 0.11 Tuesday, Aug. 2nd 2016
 
 - interface simplified to single function load_container

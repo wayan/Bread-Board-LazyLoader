@@ -215,14 +215,18 @@ sub _load_sub_container_role {
 }
 
 # loads file in a sandbox package
+my $Sandbox_num = 0;
+
 sub _load_file_content {
     my ( $file ) = @_;
 
     my $package = $file;
     $package =~ s/([^A-Za-z0-9_])/sprintf("_%2x", unpack("C", $1))/eg;
 
-    my $code = eval sprintf <<'END_EVAL', 'Bread::Board::LazyLoader', $package;
-package %s::Sandbox::%s;
+    my $sandbox_num = ++ $Sandbox_num;
+
+    my $code = eval sprintf <<'END_EVAL', 'Bread::Board::LazyLoader', $sandbox_num, $package;
+package %s::Sandbox::%d::%s;
 {
     my $code = do $file;
     if ( !$code && ( my $error = $@ || $! )) { die $error; }
